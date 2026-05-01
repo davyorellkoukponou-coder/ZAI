@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { ArrowRight, Sparkles, Eye, Send, MessageCircleHeart } from 'lucide-react'
 import { getUser } from '@/lib/zai'
@@ -28,11 +29,19 @@ export default function LandingPage() {
         </div>
         <div className="flex items-center gap-2">
           {user ? (
-            <Button onClick={() => router.push('/dashboard')} className="bg-violet-600 hover:bg-violet-500">
-              Mon dashboard
-            </Button>
+            <>
+              <Button variant="ghost" onClick={() => router.push('/rules')} className="text-zinc-300 hover:text-white hidden sm:inline-flex">
+                Règles
+              </Button>
+              <Button onClick={() => router.push('/dashboard')} className="bg-violet-600 hover:bg-violet-500">
+                Mon dashboard
+              </Button>
+            </>
           ) : (
             <>
+              <Button variant="ghost" onClick={() => router.push('/rules')} className="text-zinc-300 hover:text-white hidden sm:inline-flex">
+                Règles
+              </Button>
               <Button variant="ghost" onClick={() => router.push('/login')} className="text-zinc-300 hover:text-white">
                 Connexion
               </Button>
@@ -117,8 +126,9 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="relative z-10 border-t border-white/5 py-6 text-center text-xs text-zinc-500">
-        Zai · Fait pour les vibes anonymes 🕊️
+      <footer className="relative z-10 border-t border-white/5 py-8 text-center text-xs text-zinc-500 flex flex-col items-center gap-2">
+        <p>Zai · Fait pour les vibes anonymes 🕊️</p>
+        <Link href="/rules" className="text-violet-400 hover:text-violet-300 transition">Règles & Sécurité (Anti-Harcèlement)</Link>
       </footer>
     </main>
   )

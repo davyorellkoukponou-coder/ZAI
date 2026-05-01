@@ -116,6 +116,8 @@ async function handleRoute(request, { params }) {
         bio: '',
         avatar_url: `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(username)}`,
         message_count: 0,
+        profile_views: 0,
+        blocked_sessions: [],
         created_at: new Date(),
       }
       await db.collection('users').insertOne(user)
@@ -155,7 +157,7 @@ async function handleRoute(request, { params }) {
     }
 
     // GET /users/profile/:username (public)
-    if (path[0] === 'users' && path[1] === 'profile' && path[2] && method === 'GET') {
+    if (path[0] === 'users' && path[1] === 'profile' && path[2] && path.length === 3 && method === 'GET') {
       const username = path[2].toLowerCase()
       const user = await db.collection('users').findOne({ username })
       if (!user) return handleCORS(NextResponse.json({ error: 'Profil introuvable' }, { status: 404 }))
@@ -170,6 +172,13 @@ async function handleRoute(request, { params }) {
       }))
     }
 
+    // POST /users/profile/:username/view (increment profile views)
+    if (path[0] === 'users' && path[1] === 'profile' && path[2] && path[3] === 'view' && method === 'POST') {
+      const username = path[2].toLowerCase()
+      await db.collection('users').updateOne({ username }, { $inc: { profile_views: 1 } })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
     // PATCH /users/me (update bio)
     if (route === '/users/me' && method === 'PATCH') {
       const auth = getAuthUser(request)
@@ -180,6 +189,108 @@ async function handleRoute(request, { params }) {
       await db.collection('users').updateOne({ id: auth.id }, { $set: update })
       const user = await db.collection('users').findOne({ id: auth.id })
       return handleCORS(NextResponse.json({ user: strip(user) }))
+    }
+
+    // ---------- COUPLES ----------
+    if (path[0] === 'couples' && path[1] === 'status' && method === 'GET') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const user = await db.collection('users').findOne({ id: auth.id })
+      const startOfDay = new Date()
+      startOfDay.setHours(0, 0, 0, 0)
+      const messagesToday = await db.collection('messages').countDocuments({
+        recipient_id: auth.id,
+        created_at: { $gte: startOfDay }
+      })
+      return handleCORS(NextResponse.json({ couple: user.couple || { status: 'none' }, messagesToday }))
+    }
+
+    if (path[0] === 'couples' && path[1] === 'request' && method === 'POST') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const body = await request.json()
+      const targetUsername = (body.target_username || '').trim().toLowerCase()
+      if (targetUsername === auth.username) return handleCORS(NextResponse.json({ error: 'Tu ne peux pas te lier à toi-même' }, { status: 400 }))
+      const target = await db.collection('users').findOne({ username: targetUsername })
+      if (!target) return handleCORS(NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 }))
+      
+      const me = await db.collection('users').findOne({ id: auth.id })
+      if (me.couple && me.couple.status !== 'none') return handleCORS(NextResponse.json({ error: 'Tu es déjà en couple ou en attente' }, { status: 400 }))
+      if (target.couple && target.couple.status !== 'none') return handleCORS(NextResponse.json({ error: 'Cet utilisateur est déjà pris ou en attente' }, { status: 400 }))
+
+      await db.collection('users').updateOne({ id: auth.id }, { $set: { couple: { partner_id: target.id, partner_username: target.username, status: 'pending_sent' } } })
+      await db.collection('users').updateOne({ id: target.id }, { $set: { couple: { partner_id: auth.id, partner_username: auth.username, status: 'pending_received' } } })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    if (path[0] === 'couples' && path[1] === 'accept' && method === 'POST') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const me = await db.collection('users').findOne({ id: auth.id })
+      if (!me.couple || me.couple.status !== 'pending_received') return handleCORS(NextResponse.json({ error: 'Aucune demande en attente' }, { status: 400 }))
+      
+      await db.collection('users').updateOne({ id: auth.id }, { $set: { 'couple.status': 'linked' } })
+      await db.collection('users').updateOne({ id: me.couple.partner_id }, { $set: { 'couple.status': 'linked' } })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    if (path[0] === 'couples' && path[1] === 'reject' && method === 'POST') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const me = await db.collection('users').findOne({ id: auth.id })
+      if (me.couple && me.couple.partner_id) {
+        await db.collection('users').updateOne({ id: me.couple.partner_id }, { $set: { couple: { status: 'none' } } })
+      }
+      await db.collection('users').updateOne({ id: auth.id }, { $set: { couple: { status: 'none' } } })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    if (path[0] === 'couples' && path[1] === 'unlink' && method === 'DELETE') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const me = await db.collection('users').findOne({ id: auth.id })
+      if (me.couple && me.couple.partner_id) {
+        await db.collection('users').updateOne({ id: me.couple.partner_id }, { $set: { couple: { status: 'none' } } })
+      }
+      await db.collection('users').updateOne({ id: auth.id }, { $set: { couple: { status: 'none' } } })
+      return handleCORS(NextResponse.json({ ok: true }))
+    }
+
+    if (path[0] === 'couples' && path[1] === 'snoop' && method === 'POST') {
+      const auth = getAuthUser(request)
+      if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
+      const body = await request.json()
+      const tag = body.tag
+      
+      const me = await db.collection('users').findOne({ id: auth.id })
+      if (!me.couple || me.couple.status !== 'linked') return handleCORS(NextResponse.json({ error: 'Tu dois être associé à quelqu\'un' }, { status: 400 }))
+      
+      const startOfDay = new Date()
+      startOfDay.setHours(0, 0, 0, 0)
+      const messagesToday = await db.collection('messages').countDocuments({
+        recipient_id: auth.id,
+        created_at: { $gte: startOfDay }
+      })
+      if (messagesToday < 25) return handleCORS(NextResponse.json({ error: `Objectif non atteint (${messagesToday}/25)` }, { status: 403 }))
+
+      const partnerId = me.couple.partner_id
+      const query = { recipient_id: partnerId }
+      if (tag && tag !== 'all') query.mood_tag = tag
+
+      const snoopedMessages = await db.collection('messages')
+        .aggregate([
+          { $match: query },
+          { $sample: { size: 3 } }
+        ])
+        .toArray()
+
+      const out = snoopedMessages.map(m => ({
+        id: m.id,
+        content: m.content,
+        mood_tag: m.mood_tag,
+        created_at: m.created_at
+      }))
+      return handleCORS(NextResponse.json({ messages: out }))
     }
 
     // ---------- MESSAGES ----------
@@ -205,6 +316,16 @@ async function handleRoute(request, { params }) {
       }
       const recipient = await db.collection('users').findOne({ username: recipient_username })
       if (!recipient) return handleCORS(NextResponse.json({ error: 'Destinataire introuvable' }, { status: 404 }))
+
+      // Check shadowban
+      if (recipient.blocked_sessions) {
+        const ban = recipient.blocked_sessions.find(b => b.session_id === session_id)
+        if (ban && new Date(ban.expires_at) > new Date()) {
+          // Shadowban : on fait croire que le message est parti
+          return handleCORS(NextResponse.json({ ok: true, session_id, shadowbanned: true }))
+        }
+      }
+
       // count previous messages from same anon session to same recipient
       const prevCount = await db.collection('messages').countDocuments({ recipient_id: recipient.id, 'metadata.session_id': session_id })
       const meta = generateMetadata(session_id, recipient.id, prevCount)
@@ -312,7 +433,30 @@ async function handleRoute(request, { params }) {
       const auth = getAuthUser(request)
       if (!auth) return handleCORS(NextResponse.json({ error: 'Non authentifié' }, { status: 401 }))
       const id = path[1]
-      await db.collection('messages').updateOne({ id, recipient_id: auth.id }, { $set: { is_reported: true } })
+      const msg = await db.collection('messages').findOne({ id, recipient_id: auth.id })
+      if (!msg) return handleCORS(NextResponse.json({ error: 'Message introuvable' }, { status: 404 }))
+
+      await db.collection('messages').updateOne({ id }, { $set: { is_reported: true } })
+
+      // Check if this session needs to be blocked (3 strikes)
+      if (msg.metadata && msg.metadata.session_id) {
+        const sessionId = msg.metadata.session_id
+        const reportedCount = await db.collection('messages').countDocuments({
+          recipient_id: auth.id,
+          'metadata.session_id': sessionId,
+          is_reported: true
+        })
+
+        if (reportedCount >= 3) {
+          // Block for 10 days
+          const expires_at = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)
+          await db.collection('users').updateOne(
+            { id: auth.id },
+            { $push: { blocked_sessions: { session_id: sessionId, expires_at } } }
+          )
+        }
+      }
+
       return handleCORS(NextResponse.json({ ok: true }))
     }
 

@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
-import { Loader2, LogOut, Share2, Send, Trash2, Flag, Inbox, Sparkles, Copy, ExternalLink, Bell } from 'lucide-react'
+import { Loader2, LogOut, Share2, Send, Trash2, Flag, Inbox, Sparkles, Copy, ExternalLink, Bell, Heart, Unlock, UserPlus, Check, X, Camera, Search } from 'lucide-react'
 import { api, getToken, getUser, setToken, setUser, MOOD_TAGS, moodOf, timeRemaining, REACTION_EMOJIS } from '@/lib/zai'
 
 export default function DashboardPage() {
@@ -17,6 +17,8 @@ export default function DashboardPage() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(true)
   const [unread, setUnread] = useState(0)
+  const [couple, setCouple] = useState({ status: 'none' })
+  const [messagesToday, setMessagesToday] = useState(0)
   const [filter, setFilter] = useState('all') // all|unread|replied
   const [bio, setBio] = useState('')
   const [savingBio, setSavingBio] = useState(false)
@@ -32,9 +34,13 @@ export default function DashboardPage() {
 
   async function load() {
     try {
-      const [a, b] = await Promise.all([api('/messages'), api('/messages/unread-count')])
+      const [a, b, c] = await Promise.all([api('/messages'), api('/messages/unread-count'), api('/couples/status')])
       setMessages(a.messages || [])
       setUnread(b.unread || 0)
+      if (c && c.couple) {
+        setCouple(c.couple)
+        setMessagesToday(c.messagesToday || 0)
+      }
     } catch (e) {
       if (e.status === 401) { setToken(null); router.push('/login') }
     } finally { setLoading(false) }
@@ -114,6 +120,9 @@ export default function DashboardPage() {
             )}
           </div>
           <div className="flex-1" />
+          <Button variant="ghost" onClick={() => router.push('/rules')} className="text-zinc-300 hover:text-white hidden sm:inline-flex">
+            Règles
+          </Button>
           <Button variant="outline" onClick={() => router.push(`/u/${user.username}/share`)} className="border-white/15 bg-white/5 hover:bg-white/10 hidden sm:inline-flex">
             <Share2 className="h-4 w-4 mr-2" /> Partager
           </Button>
@@ -132,7 +141,7 @@ export default function DashboardPage() {
               <div className="text-xs text-zinc-400">Ton profil</div>
               <div className="text-xl font-bold truncate">@{user.username}</div>
               <div className="text-xs text-zinc-400 mt-0.5">
-                <span className="text-violet-300 font-semibold">{user.message_count}</span> messages reçus
+                <span className="text-violet-300 font-semibold">{user.message_count}</span> messages reçus · <span className="text-fuchsia-300 font-semibold">{user.profile_views || 0}</span> vues du lien
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={() => router.push(`/u/${user.username}/share`)} className="border-white/15 bg-white/5 hover:bg-white/10 sm:hidden">
@@ -155,6 +164,8 @@ export default function DashboardPage() {
             <button onClick={() => window.open(profileLink, '_blank')} className="text-zinc-400 hover:text-white"><ExternalLink className="h-3.5 w-3.5" /></button>
           </div>
         </Card>
+
+        <CoupleSection couple={couple} messagesToday={messagesToday} load={load} />
 
         {/* Stats */}
         {messages.length > 0 && (
@@ -198,7 +209,7 @@ export default function DashboardPage() {
         ) : (
           <div className="space-y-3">
             {sorted.map(m => (
-              <MessageCard key={m.id} m={m} onMarkRead={markRead} onReply={reply} onDelete={del} onReport={report} />
+              <MessageCard key={m.id} m={m} user={user} onMarkRead={markRead} onReply={reply} onDelete={del} onReport={report} />
             ))}
           </div>
         )}
@@ -207,56 +218,111 @@ export default function DashboardPage() {
   )
 }
 
-function MessageCard({ m, onMarkRead, onReply, onDelete, onReport }) {
+function MessageCard({ m, user, onMarkRead, onReply, onDelete, onReport }) {
   const mt = moodOf(m.mood_tag)
   const exp = timeRemaining(m.expires_at)
   const [replying, setReplying] = useState(false)
   const [replyText, setReplyText] = useState(m.reply || '')
   const totalReacts = Object.values(m.reactions || {}).reduce((a, b) => a + b, 0)
+  
+  const [hint, setHint] = useState(null)
+  const [generatingStory, setGeneratingStory] = useState(false)
+
+  const generateStory = async (e) => {
+    e.stopPropagation()
+    setGeneratingStory(true)
+    try {
+      const html2canvas = (await import('html2canvas')).default
+      const element = document.getElementById(`story-${m.id}`)
+      if (!element) return
+      element.style.display = 'flex'
+      const canvas = await html2canvas(element, { backgroundColor: '#0a0a0a', scale: 2 })
+      element.style.display = 'none'
+      
+      canvas.toBlob(async (blob) => {
+        if (!blob) return
+        const file = new File([blob], `zai-story-${m.id}.png`, { type: 'image/png' })
+        
+        // Si le navigateur mobile supporte le partage direct d'image (ex: vers Insta/WhatsApp)
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'Zai',
+            })
+            toast.success('Ouverture du menu de partage...')
+          } catch (err) {
+            // L'utilisateur a annulé le partage, on ne fait rien
+            if (err.name !== 'AbortError') fallbackDownload(canvas)
+          }
+        } else {
+          fallbackDownload(canvas)
+        }
+        setGeneratingStory(false)
+      }, 'image/png')
+      
+    } catch(err) { 
+      toast.error('Erreur lors de la génération') 
+      setGeneratingStory(false)
+    }
+  }
+
+  const fallbackDownload = (canvas) => {
+    const link = document.createElement('a')
+    link.download = `zai-story-${m.id}.png`
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+    toast.success('Image téléchargée (Partage non supporté sur ce navigateur)')
+  }
+
+  const revealHint = (e) => {
+    e.stopPropagation()
+    if (!m.metadata) return setHint("Aucun indice trouvé.")
+    const { day, slot, session_count } = m.metadata
+    
+    // Génère un nombre "aléatoire" mais fixe pour ce message (basé sur l'ID)
+    const hintType = m.id.charCodeAt(m.id.length - 1) % 5;
+    
+    let text = "";
+    if (session_count === 1 && hintType <= 1) {
+      text = "C'est la toute première fois que cette personne visite ton profil Zai !";
+    } else if (session_count > 1 && hintType <= 1) {
+      text = `Ce n'est pas un(e) inconnu(e)... Cette personne t'a déjà envoyé ${session_count} messages !`;
+    } else if (hintType === 2) {
+      text = `Détail troublant : ce message a été écrit en cachette un ${day} (${slot}).`;
+    } else if (hintType === 3) {
+      text = `L'expéditeur a tapé exactement ${m.content.length} caractères. Probablement depuis son téléphone.`;
+    } else {
+      text = `L'envoi s'est fait un ${day} en plein(e) ${slot}. L'humeur était assumée : "${mt.label}".`;
+    }
+    
+    setHint(`🕵️ Indice : ${text}`)
+  }
 
   return (
     <Card
-      onClick={() => { if (!m.is_read) onMarkRead(m.id) }}
-      className={`relative bg-zinc-950/70 border p-4 transition cursor-default animate-in fade-in slide-in-from-top-1 duration-300 ${
-        !m.is_read ? 'border-violet-500/50 ring-1 ring-violet-500/30 shadow-lg shadow-violet-900/20' : 'border-white/10'
-      }`}
+      className={`p-4 bg-white/[0.02] border-white/5 cursor-pointer transition hover:bg-white/[0.04] ${m.is_read ? 'opacity-75' : 'border-l-2 border-l-violet-500'}`}
+      onClick={() => !m.is_read && onMarkRead(m.id)}
     >
-      {!m.is_read && (
-        <div className="absolute -top-1 -left-1 flex items-center gap-1">
-          <span className="h-2.5 w-2.5 rounded-full bg-violet-500 animate-ping absolute" />
-          <span className="h-2.5 w-2.5 rounded-full bg-violet-500 relative" />
-        </div>
-      )}
-      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <Badge className={`${mt.bg} ${mt.text} border ${mt.ring} ring-1`}>{mt.label}</Badge>
-          {!m.is_read && <Badge className="bg-violet-500/20 text-violet-200 border border-violet-500/40">Nouveau</Badge>}
-          <span className="text-xs text-zinc-500">{m.metadata?.label}</span>
-        </div>
-        <div className={`text-xs font-mono ${exp.urgent ? 'text-red-400' : 'text-zinc-500'}`}>
-          ⏳ {exp.label}
-        </div>
+      <div className="flex items-center justify-between mb-3">
+        <Badge variant="outline" className={`bg-transparent border ${mt.ring} ${mt.bg} text-white`}>
+          {mt.label}
+        </Badge>
+        <span className="text-xs text-zinc-500 flex items-center gap-1">
+          {exp.label}
+        </span>
       </div>
-      <div className="text-zinc-100 text-[15px] leading-relaxed whitespace-pre-wrap">{m.content}</div>
-
-      {totalReacts > 0 && (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {REACTION_EMOJIS.map(e => {
-            const c = m.reactions?.[e] || 0
-            if (!c) return null
-            return <span key={e} className="px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-xs">{e} {c}</span>
-          })}
-        </div>
-      )}
+      <p className="text-zinc-200 whitespace-pre-wrap text-sm leading-relaxed mb-3">
+        {m.content}
+      </p>
 
       {m.is_replied && !replying ? (
         <div className="mt-3 pl-3 border-l-2 border-violet-500/50">
           <div className="text-xs text-violet-300 mb-1">Ta réponse publique</div>
           <div className="text-zinc-200 whitespace-pre-wrap">{m.reply}</div>
-          <button onClick={() => setReplying(true)} className="text-xs text-zinc-400 hover:text-white mt-2">Modifier</button>
         </div>
       ) : replying ? (
-        <div className="mt-3">
+        <div className="mt-3" onClick={e => e.stopPropagation()}>
           <Textarea value={replyText} onChange={e => setReplyText(e.target.value.slice(0, 500))} placeholder="Réponds publiquement…" className="bg-zinc-900 border-white/10 min-h-[80px]" />
           <div className="mt-2 flex gap-2 justify-end">
             <Button variant="ghost" size="sm" onClick={() => { setReplying(false); setReplyText(m.reply || '') }} className="text-zinc-400">Annuler</Button>
@@ -266,16 +332,186 @@ function MessageCard({ m, onMarkRead, onReply, onDelete, onReport }) {
           </div>
         </div>
       ) : (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 flex flex-wrap gap-2" onClick={e => e.stopPropagation()}>
           <Button size="sm" onClick={() => setReplying(true)} className="bg-violet-600 hover:bg-violet-500">
-            <Send className="h-3.5 w-3.5 mr-1.5" /> Répondre publiquement
+            <Send className="h-3.5 w-3.5 mr-1.5" /> Répondre
+          </Button>
+          <Button size="sm" onClick={generateStory} disabled={generatingStory} className="bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold">
+            {generatingStory ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Share2 className="h-3.5 w-3.5 mr-1.5" />}
+            Partager
+          </Button>
+          <Button size="sm" variant="outline" onClick={revealHint} className="border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300">
+            <Search className="h-3.5 w-3.5 mr-1.5" /> Indices
           </Button>
           <Button size="sm" variant="outline" onClick={() => onReport(m.id)} className="border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300">
-            <Flag className="h-3.5 w-3.5 mr-1.5" /> Signaler
+            <Flag className="h-3.5 w-3.5" />
           </Button>
           <Button size="sm" variant="outline" onClick={() => onDelete(m.id)} className="border-white/10 bg-white/5 hover:bg-white/10 text-zinc-300">
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
+        </div>
+      )}
+
+      {hint && (
+        <div className="mt-3 p-2 bg-white/5 rounded text-xs text-zinc-300 border border-white/10 animate-in fade-in">
+          {hint}
+        </div>
+      )}
+
+      {/* Invisible element for Story Generation */}
+      <div id={`story-${m.id}`} style={{ display: 'none', width: '1080px', height: '1920px', position: 'fixed', top: '-9999px', left: '-9999px', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a', flexDirection: 'column' }}>
+        
+        {/* The Sticker */}
+        <div className="w-[850px] flex flex-col rounded-[2.5rem] overflow-hidden bg-[#121212]">
+          {/* Top Half */}
+          <div className="bg-gradient-to-r from-violet-500 to-fuchsia-500 px-12 py-16 flex items-center justify-center text-center">
+            <span className="text-[55px] font-bold text-white leading-[1.2]">
+              envoie-moi des<br/>messages anonymes !
+            </span>
+          </div>
+          {/* Bottom Half */}
+          <div className="px-16 py-32 flex items-center justify-center text-center min-h-[450px]">
+            <span className="text-[60px] font-bold text-white leading-tight whitespace-pre-wrap">
+              {m.content}
+            </span>
+          </div>
+        </div>
+
+        {/* Call to action for the link */}
+        <div className="mt-20 flex justify-center w-full">
+          <div className="flex items-center gap-5 px-6 py-3 rounded-full border border-violet-500/40">
+            <div className="bg-fuchsia-500 p-2.5 rounded-xl flex items-center justify-center">
+              <ExternalLink className="w-8 h-8 text-white" />
+            </div>
+            <span className="text-[40px] font-bold text-white leading-none" style={{ position: 'relative', top: '-5px' }}>
+              zai.app/u/{user?.username}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function CoupleSection({ couple, messagesToday, load }) {
+  const [targetUser, setTargetUser] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [snoopTag, setSnoopTag] = useState('all')
+  const [snoopedMsgs, setSnoopedMsgs] = useState([])
+  const [showSnoop, setShowSnoop] = useState(false)
+
+  async function request() {
+    if (!targetUser.trim()) return
+    setLoading(true)
+    try { await api('/couples/request', { method: 'POST', body: JSON.stringify({ target_username: targetUser }) }); load(); toast.success('Demande envoyée !') } catch (e) { toast.error(e.message) }
+    setLoading(false)
+  }
+  async function accept() {
+    try { await api('/couples/accept', { method: 'POST' }); load(); toast.success('Demande acceptée !') } catch (e) { toast.error(e.message) }
+  }
+  async function reject() {
+    try { await api('/couples/reject', { method: 'POST' }); load() } catch (e) { toast.error(e.message) }
+  }
+  async function unlink() {
+    if (!confirm("Rompre l'association ?")) return
+    try { await api('/couples/unlink', { method: 'DELETE' }); load() } catch (e) { toast.error(e.message) }
+  }
+  async function snoop() {
+    try { 
+      const r = await api('/couples/snoop', { method: 'POST', body: JSON.stringify({ tag: snoopTag }) })
+      setSnoopedMsgs(r.messages)
+      setShowSnoop(true)
+    } catch (e) { toast.error(e.message) }
+  }
+
+  return (
+    <Card className="mt-6 bg-gradient-to-br from-fuchsia-950/40 to-zinc-950/60 border-fuchsia-500/20 p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Heart className="h-5 w-5 text-fuchsia-400" />
+        <h2 className="text-lg font-bold text-fuchsia-100">Duo & Secrets 🤫</h2>
+      </div>
+
+      {couple.status === 'none' && (
+        <div className="flex gap-2">
+          <Input placeholder="Pseudo du partenaire" value={targetUser} onChange={e => setTargetUser(e.target.value)} className="bg-zinc-900 border-white/10" />
+          <Button onClick={request} disabled={loading} className="bg-fuchsia-600 hover:bg-fuchsia-500"><UserPlus className="h-4 w-4 mr-2" /> Demander</Button>
+        </div>
+      )}
+
+      {couple.status === 'pending_sent' && (
+        <div className="text-zinc-400 flex items-center justify-between text-sm">
+          <span>Demande envoyée à <strong className="text-white">@{couple.partner_username}</strong>...</span>
+          <Button variant="ghost" size="sm" onClick={reject} className="text-red-400 hover:text-red-300">Annuler</Button>
+        </div>
+      )}
+
+      {couple.status === 'pending_received' && (
+        <div className="flex items-center justify-between flex-wrap gap-2 text-sm">
+          <span className="text-zinc-200"><strong className="text-white">@{couple.partner_username}</strong> veut s'associer avec toi.</span>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={accept} className="bg-fuchsia-600 hover:bg-fuchsia-500"><Check className="h-4 w-4 mr-1" /> Accepter</Button>
+            <Button size="sm" variant="outline" onClick={reject} className="border-white/10 hover:bg-white/5 text-zinc-300"><X className="h-4 w-4 mr-1" /> Refuser</Button>
+          </div>
+        </div>
+      )}
+
+      {couple.status === 'linked' && (
+        <div className="space-y-4">
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-zinc-400">Lié(e) avec <strong className="text-fuchsia-300">@{couple.partner_username}</strong></span>
+            <button onClick={unlink} className="text-xs text-zinc-500 hover:text-red-400">Séparer</button>
+          </div>
+          
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs font-semibold">
+              <span className="text-zinc-400">Objectif du jour</span>
+              <span className={messagesToday >= 25 ? "text-fuchsia-400" : "text-zinc-400"}>{messagesToday} / 25 msgs</span>
+            </div>
+            <div className="h-2.5 w-full bg-zinc-900 rounded-full overflow-hidden border border-white/5">
+              <div className="h-full bg-gradient-to-r from-violet-600 to-fuchsia-500 transition-all duration-500" style={{ width: `${Math.min(100, (messagesToday / 25) * 100)}%` }} />
+            </div>
+          </div>
+
+          {messagesToday >= 25 ? (
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center p-3 bg-fuchsia-500/10 border border-fuchsia-500/20 rounded-lg">
+              <select value={snoopTag} onChange={e => setSnoopTag(e.target.value)} className="bg-zinc-900 text-sm text-white border border-white/10 rounded-md p-2 flex-1 focus:ring-1 focus:ring-fuchsia-500 outline-none">
+                <option value="all">Tous les tags</option>
+                {MOOD_TAGS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+              <Button onClick={snoop} className="bg-fuchsia-600 hover:bg-fuchsia-500 font-bold shadow-lg shadow-fuchsia-900/50">
+                <Unlock className="h-4 w-4 mr-2" /> Espionner !
+              </Button>
+            </div>
+          ) : (
+            <div className="text-xs text-center text-zinc-500 italic mt-2">Partage ton lien pour atteindre les 25 messages et débloquer ses secrets.</div>
+          )}
+
+          {showSnoop && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm grid place-items-center p-4 animate-in fade-in duration-200">
+              <div className="bg-zinc-950 border border-fuchsia-500/30 rounded-xl max-w-md w-full p-6 shadow-2xl relative">
+                <button onClick={() => setShowSnoop(false)} className="absolute top-4 right-4 text-zinc-500 hover:text-white"><X className="h-5 w-5" /></button>
+                <div className="flex items-center gap-2 mb-4">
+                  <Unlock className="h-6 w-6 text-fuchsia-400" />
+                  <h3 className="text-xl font-bold text-white">Secrets de @{couple.partner_username}</h3>
+                </div>
+                {snoopedMsgs.length === 0 ? (
+                  <p className="text-zinc-400 text-sm">Aucun message trouvé pour ce tag.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {snoopedMsgs.map(m => (
+                      <div key={m.id} className="bg-zinc-900/50 border border-white/10 p-3 rounded-lg text-sm text-zinc-200">
+                        <div className="text-xs text-fuchsia-400 mb-1 flex justify-between">
+                          <span className="uppercase tracking-wider">{m.mood_tag}</span>
+                          <span className="text-zinc-500">{new Date(m.created_at).toLocaleDateString()}</span>
+                        </div>
+                        {m.content}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </Card>

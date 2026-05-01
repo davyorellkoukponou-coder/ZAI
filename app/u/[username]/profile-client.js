@@ -46,6 +46,13 @@ export default function ProfileClient() {
     if (!username) return
     loadProfile()
     loadThread()
+    
+    // View tracking
+    const viewKey = `viewed_${username}`
+    if (!sessionStorage.getItem(viewKey)) {
+      api(`/users/profile/${username}/view`, { method: 'POST' }).catch(() => {})
+      sessionStorage.setItem(viewKey, 'true')
+    }
   }, [username])
 
   // Poll thread every 5s

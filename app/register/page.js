@@ -44,7 +44,8 @@ export default function RegisterPage() {
       router.push('/dashboard')
     } catch (e) {
       toast.error(e.message)
-    } finally { setLoading(false) }
+      setLoading(false)
+    }
   }
 
   return (

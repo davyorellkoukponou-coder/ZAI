@@ -9,6 +9,8 @@ export const metadata = {
     description: 'Dis ce que tu penses. Sans te dévoiler.',
     type: 'website',
   },
+  manifest: '/manifest.json',
+  themeColor: '#0a0a0a',
 }
 
 export default function RootLayout({ children }) {
