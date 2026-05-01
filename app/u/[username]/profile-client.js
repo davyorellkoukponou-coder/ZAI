@@ -73,7 +73,6 @@ export default function ProfileClient() {
       setSent(true)
       setContent('')
       setProfile(p => p ? { ...p, message_count: (p.message_count || 0) + 1 } : p)
-      setTimeout(() => setSent(false), 3500)
     } catch (e) {
       toast.error(e.message)
     } finally {
@@ -184,19 +183,25 @@ export default function ProfileClient() {
         {/* Send form */}
         <Card className="mt-5 bg-zinc-950/70 border-white/10 p-5">
           {sent ? (
-            <div className="py-8 text-center animate-in fade-in zoom-in duration-300">
-              <div className="text-5xl mb-2">🕊️</div>
-              <div className="text-lg font-semibold">Ton message a été envoyé</div>
-              <div className="text-sm text-zinc-400 mt-1">
-                @{profile.username} le verra sur son dashboard.
+            <div className="py-6 text-center animate-in fade-in zoom-in duration-300">
+              <div className="text-4xl mb-2">🤫</div>
+              <div className="text-lg font-bold">Message envoyé secrètement !</div>
+              
+              {/* Viral Loop CTA */}
+              <div className="mt-5 p-5 bg-gradient-to-br from-violet-600/20 to-fuchsia-600/20 border border-violet-500/30 rounded-2xl w-full text-center shadow-xl">
+                <h4 className="text-lg font-bold text-white mb-1">Et toi, que pensent tes amis de toi ?</h4>
+                <p className="text-sm text-zinc-300 mb-4">Crée ton profil Zai et reçois des messages anonymes.</p>
+                <Button onClick={() => router.push('/register')} className="w-full bg-white text-black hover:bg-zinc-200 font-bold rounded-xl h-11 shadow-[0_0_20px_-5px_rgba(255,255,255,0.4)]">
+                  Créer mon lien Zai 🚀
+                </Button>
               </div>
-              <Button
-                variant="outline"
-                className="mt-4 border-white/15 bg-white/5 hover:bg-white/10"
+              
+              <button
+                className="mt-4 text-sm text-zinc-400 hover:text-white transition"
                 onClick={() => setSent(false)}
               >
                 Envoyer un autre message
-              </Button>
+              </button>
             </div>
           ) : (
             <>

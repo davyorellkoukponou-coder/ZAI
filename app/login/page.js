@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,10 +8,16 @@ import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { Loader2, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, setToken, setUser } from '@/lib/zai'
+import { api, setToken, setUser, getUser } from '@/lib/zai'
 
 export default function LoginPage() {
   const router = useRouter()
+
+  useEffect(() => {
+    if (getUser()) {
+      router.replace('/dashboard')
+    }
+  }, [router])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)

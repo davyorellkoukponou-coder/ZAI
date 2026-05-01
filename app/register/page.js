@@ -8,10 +8,16 @@ import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { Check, X, Loader2, ArrowLeft } from 'lucide-react'
 import { toast } from 'sonner'
-import { api, setToken, setUser, avatarUrl } from '@/lib/zai'
+import { api, setToken, setUser, getUser, avatarUrl } from '@/lib/zai'
 
 export default function RegisterPage() {
   const router = useRouter()
+
+  useEffect(() => {
+    if (getUser()) {
+      router.replace('/dashboard')
+    }
+  }, [router])
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -40,8 +46,8 @@ export default function RegisterPage() {
     try {
       const r = await api('/auth/register', { method: 'POST', body: JSON.stringify({ username, email, password }) })
       setToken(r.token); setUser(r.user)
-      toast.success('Bienvenue sur Zai 🕊️')
-      router.push('/dashboard')
+      toast.success('Compte créé avec succès ! 🎉')
+      router.push(`/u/${r.user.username}/share`)
     } catch (e) {
       toast.error(e.message)
       setLoading(false)
